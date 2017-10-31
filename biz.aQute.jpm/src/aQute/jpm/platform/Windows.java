@@ -5,7 +5,6 @@ package aQute.jpm.platform;
  */
 import java.io.File;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -18,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import aQute.bnd.osgi.Instructions;
-import aQute.jpm.lib.ArtifactData;
 import aQute.jpm.lib.CommandData;
 import aQute.jpm.lib.JVM;
 import aQute.jpm.lib.ServiceData;
@@ -41,10 +39,6 @@ import aQute.lib.strings.Strings;
  */
 public class Windows extends Platform {
 	private final static Logger	logger	= LoggerFactory.getLogger(Windows.class);
-	static boolean	IS64	= System.getProperty("os.arch").contains("64");
-
-	static File		javahome;
-	private File	misc;
 
 	/**
 	 * The default global directory.
@@ -100,54 +94,18 @@ public class Windows extends Platform {
 	@Override
 	public String createCommand(CommandData data, Map<String,String> map, boolean force, String... extra)
 			throws Exception {
-
-		//
-		// The path to the executable
-		//
 		data.bin = getExecutable(data);
+
 		File f = new File(data.bin);
+		if (f.isDirectory()) {
+			f = new File(data.bin, data.name);
+			data.bin = f.getAbsolutePath();
+		}
 
 		if (!force && f.exists())
-			return "Command already exists " + data.bin + ", try to use --force";
+			return "Command already exists " + data.bin;
 
-		//
-		// Pick console or windows (java/javaw)
-		//
-		if (data.windows)
-			IO.copy(new File(getMisc(), "winrun4j.exe"), f);
-		else
-			IO.copy(new File(getMisc(), "winrun4jc.exe"), f);
-
-		//
-		// Make the ini file
-		//
-		File ini = new File(f.getAbsolutePath().replaceAll("\\.exe$", ".ini"));
-		try (PrintWriter pw = new PrintWriter(ini)) {
-			pw.printf("main.class=%s%n", data.main);
-			pw.printf("log.level=error%n");
-			String del = "classpath.1=";
-
-			//
-			// Add all the calculated dependencies
-			//
-			for (byte[] dependency : data.dependencies) {
-				ArtifactData d = jpm.get(dependency);
-				pw.printf("%s%s", del, d.file);
-				del = ",";
-			}
-
-			pw.printf("%n");
-
-			//
-			// And the vm arguments.
-			//
-			if (data.jvmArgs != null && data.jvmArgs.length() != 0) {
-				String parts[] = data.jvmArgs.split("\\s+");
-				for (int i = 0; i < parts.length; i++)
-					pw.printf("vmarg.%d=%s%n", i + 1, parts[i]);
-			}
-		}
-		logger.debug("Ini content {}", IO.collect(ini));
+		process("windows/command.bat", data, data.bin, map, extra);
 		return null;
 	}
 
@@ -155,25 +113,12 @@ public class Windows extends Platform {
 	public void deleteCommand(CommandData cmd) throws Exception {
 		String executable = getExecutable(cmd);
 		File f = new File(executable);
-		File fj = new File(executable + ".ini");
 		if (cmd.name.equals("jpm")) {
 			logger.debug("leaving jpm behind");
 			return;
 		} else {
 			IO.deleteWithException(f);
-			IO.deleteWithException(fj);
 		}
-	}
-
-	/**
-	 * Where we store our miscellaneous stuff.
-	 *
-	 */
-	private File getMisc() {
-		if (misc == null) {
-			misc = new File(jpm.getHomeDir(), "misc");
-		}
-		return misc;
 	}
 
 	/**
@@ -182,7 +127,7 @@ public class Windows extends Platform {
 	 * @param data
 	 */
 	protected String getExecutable(CommandData data) {
-		return new File(jpm.getBinDir(), data.name + ".exe").getAbsolutePath();
+		return new File(jpm.getBinDir(), data.name + ".bat").getAbsolutePath();
 	}
 
 	/**
@@ -247,37 +192,6 @@ public class Windows extends Platform {
 	 */
 
 	public void report(Formatter f) throws Exception {}
-
-	/**
-	 * Initialize the directories for windows.
-	 * 
-	 * @throws Exception
-	 */
-
-	public void init() throws Exception {
-		IO.mkdirs(getMisc());
-		if (IS64) {
-			IO.copy(getClass().getResourceAsStream("windows/winrun4jc64.exe"), new File(getMisc(), "winrun4jc.exe"));
-			IO.copy(getClass().getResourceAsStream("windows/winrun4j64.exe"), new File(getMisc(), "winrun4j.exe"));
-			// IO.copy(getClass().getResourceAsStream("windows/sjpm64.exe"), new
-			// File(getMisc(), "sjpm.exe"));
-		} else {
-			IO.copy(getClass().getResourceAsStream("windows/winrun4j.exe"), new File(getMisc(), "winrun4j.exe"));
-			IO.copy(getClass().getResourceAsStream("windows/winrun4jc.exe"), new File(getMisc(), "winrun4jc.exe"));
-			// IO.copy(getClass().getResourceAsStream("windows/winrun4j.exe"),
-			// new File(getMisc(), "sjpm.exe"));
-		}
-	}
-
-	@Override
-	public boolean hasPost() {
-		return true;
-	}
-
-	@Override
-	public void doPostInstall() {
-		System.out.println("In post install");
-	}
 
 	/**
 	 * Add the current bindir to the environment
